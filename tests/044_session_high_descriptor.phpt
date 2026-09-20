@@ -1,5 +1,5 @@
 --TEST--
-Io\Terminal\Terminal restores raw mode on destruction and uncaught exception shutdown
+Session reads support descriptors beyond select FD_SETSIZE
 --EXTENSIONS--
 terminal
 --SKIPIF--
@@ -28,35 +28,35 @@ foreach ($pipes as $pipe) {
 }
 
 proc_close($process);
+$files = [];
+for ($i = 0; $i < 1200; ++$i) {
+    if (!is_resource($files[] = @fopen('/dev/null', 'r'))) {
+        die("skip requires at least 1200 file descriptors\n");
+    }
+}
 ?>
 --FILE--
 <?php
 require __DIR__ . '/terminal_pty.inc';
 $child = <<<'PHP'
+$files = [];
+for ($i = 0; $i < 1100; ++$i) {
+    $files[] = fopen('/dev/null', 'r');
+}
 $input = fopen('php://fd/3', 'r+');
 $term = Io\Terminal\Terminal::fromStreams($input);
-$token = $term->enableRawMode();
-if ($token === false) {
-    throw new LogicException('Cannot enable raw mode');
-}
-echo "RAW\n";
+$mode = $term->enableRawMode();
+echo "READY\n";
+var_dump($term->readKey(1));
+var_dump($term->readSecret());
 PHP;
-foreach (['unset($term);', "throw new RuntimeException('uncaught');"] as $exit) {
-    [$output, $error, $echo, $status, $restored] = terminal_test_pty($child . $exit, null, true);
-    var_dump(str_contains($output, "RAW\n"), $restored, $echo === '');
-    if ($status === 0) {
-        var_dump($error === '');
-    } else {
-        var_dump($status === 255 && str_contains($output . $error, 'Uncaught RuntimeException: uncaught'));
-    }
-}
+[$output, $error, $echo, $status] = terminal_test_pty($child, "xsecret\n");
+echo $output;
+var_dump($error === '', $echo === '', $status === 0);
 ?>
 --EXPECT--
-bool(true)
-bool(true)
-bool(true)
-bool(true)
-bool(true)
+string(1) "x"
+string(6) "secret"
 bool(true)
 bool(true)
 bool(true)

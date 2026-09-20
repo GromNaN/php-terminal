@@ -1,5 +1,5 @@
 --TEST--
-Io\Terminal\Terminal restores raw mode on destruction and uncaught exception shutdown
+Session key and secret reads consume PHP-buffered input before native bytes
 --EXTENSIONS--
 terminal
 --SKIPIF--
@@ -36,27 +36,22 @@ $child = <<<'PHP'
 $input = fopen('php://fd/3', 'r+');
 $term = Io\Terminal\Terminal::fromStreams($input);
 $token = $term->enableRawMode();
-if ($token === false) {
-    throw new LogicException('Cannot enable raw mode');
-}
-echo "RAW\n";
+echo "READY\n";
+// fread prefetches the rest into PHP's buffer, including the escape and UTF-8 sequence.
+var_dump(fread($input, 1));
+var_dump(stream_get_meta_data($input)['unread_bytes'] > 0);
+var_dump($term->readKey(0.1) === Io\Terminal\Key::Up);
+var_dump($term->readSecret());
 PHP;
-foreach (['unset($term);', "throw new RuntimeException('uncaught');"] as $exit) {
-    [$output, $error, $echo, $status, $restored] = terminal_test_pty($child . $exit, null, true);
-    var_dump(str_contains($output, "RAW\n"), $restored, $echo === '');
-    if ($status === 0) {
-        var_dump($error === '');
-    } else {
-        var_dump($status === 255 && str_contains($output . $error, 'Uncaught RuntimeException: uncaught'));
-    }
-}
+[$output, $error, $echo, $status] = terminal_test_pty($child, "x\x1b[Acaf\xc3\xa9\n");
+echo $output;
+var_dump($error === '', $echo === '', $status === 0);
 ?>
 --EXPECT--
+string(1) "x"
 bool(true)
 bool(true)
-bool(true)
-bool(true)
-bool(true)
+string(5) "café"
 bool(true)
 bool(true)
 bool(true)

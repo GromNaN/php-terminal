@@ -1,5 +1,5 @@
 --TEST--
-Io\Terminal\Terminal restores raw mode on destruction and uncaught exception shutdown
+Repeated raw mode on one session preserves the original mode and single-use token
 --EXTENSIONS--
 terminal
 --SKIPIF--
@@ -34,29 +34,31 @@ proc_close($process);
 require __DIR__ . '/terminal_pty.inc';
 $child = <<<'PHP'
 $input = fopen('php://fd/3', 'r+');
+$before = terminal_test_mode($input);
 $term = Io\Terminal\Terminal::fromStreams($input);
+$first = $term->enableRawMode();
+$raw = terminal_test_mode($input);
+$second = $term->enableRawMode();
+var_dump($first === $second, terminal_test_mode($input) === $raw);
+var_dump($term->restoreMode(), terminal_test_mode($input) === $before);
+var_dump($term->restoreMode());
 $token = $term->enableRawMode();
-if ($token === false) {
-    throw new LogicException('Cannot enable raw mode');
-}
-echo "RAW\n";
+unset($term);
+var_dump(terminal_test_mode($input) === $before);
+try { Terminal\Terminal::restoreMode($token); } catch (ValueError $e) { echo "single-use\n"; }
 PHP;
-foreach (['unset($term);', "throw new RuntimeException('uncaught');"] as $exit) {
-    [$output, $error, $echo, $status, $restored] = terminal_test_pty($child . $exit, null, true);
-    var_dump(str_contains($output, "RAW\n"), $restored, $echo === '');
-    if ($status === 0) {
-        var_dump($error === '');
-    } else {
-        var_dump($status === 255 && str_contains($output . $error, 'Uncaught RuntimeException: uncaught'));
-    }
-}
+[$output, $error, $echo, $status] = terminal_test_pty($child, null);
+echo $output;
+var_dump($error === '', $echo === '', $status === 0);
 ?>
 --EXPECT--
 bool(true)
 bool(true)
 bool(true)
 bool(true)
+bool(false)
 bool(true)
+single-use
 bool(true)
 bool(true)
 bool(true)
